@@ -11,7 +11,6 @@ const String adminUsername = "admin";
 const String adminPassword = "password123";
 bool isAuthenticated = false;
 
-
 // Wi-Fi credentials for the Access Point
 const char* ssid = "BottleVendingMachine"; // Removed password
 
@@ -33,6 +32,10 @@ Servo servo2;
 HX711 scale;
 const float calibration_factor = -7050; // Adjust as needed for calibration
 
+// Ultrasonic sensor pins
+#define TRIGGER_PIN 17
+#define ECHO_PIN 16
+
 // Device timers and data usage tracking
 struct DeviceTimer {
   String ip;
@@ -42,6 +45,19 @@ struct DeviceTimer {
 
 DeviceTimer deviceTimers[10];
 int deviceCount = 0;
+
+// Function to get distance from ultrasonic sensor
+long getDistance() {
+  digitalWrite(TRIGGER_PIN, LOW);
+  delayMicroseconds(2);
+  digitalWrite(TRIGGER_PIN, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(TRIGGER_PIN, LOW);
+
+  long duration = pulseIn(ECHO_PIN, HIGH);
+  long distance = duration * 0.034 / 2;
+  return distance;
+}
 
 // Handle root webpage
 void handleRoot() {
@@ -129,6 +145,38 @@ void handleAdmin() {
 
 // Handle bottle insertion
 void handleInsert() {
+  // Check if a bottle is present using the ultrasonic sensor
+  long distance = getDistance();
+  if (distance > 10) { // Adjust this threshold based on your setup
+    String htmlResponse = R"rawliteral(
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Bottle Vending Machine</title>
+        <style>
+          body { font-family: Arial, sans-serif; text-align: center; background: linear-gradient(to bottom, #4facfe, #00f2fe); color: white; margin: 0; padding: 0; }
+          .container { max-width: 600px; margin: 50px auto; padding: 20px; background: rgba(255, 255, 255, 0.1); border-radius: 10px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2); }
+          h1 { font-size: 2.5em; margin-bottom: 10px; }
+          p { font-size: 1.2em; margin: 15px 0; }
+          .button { display: inline-block; background: #28a745; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-size: 1.2em; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2); }
+          .button:hover { background: #218838; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <h1>Result</h1>
+          <p><b>Status:</b> No bottle detected. Please insert a bottle.</p>
+          <p><a href="/" class="button">Go Back</a></p>
+        </div>
+      </body>
+      </html>
+    )rawliteral";
+    server.send(200, "text/html", htmlResponse);
+    return;
+  }
+
   servo1.write(90); // Open the deposit slot
   delay(3000);
   servo1.write(0);  // Close the deposit slot
@@ -142,19 +190,19 @@ void handleInsert() {
 
   lcd.clear();
 
-  if (weight >= 1.00 && weight < 2.00) {
+  if (weight >= -0.00 || weight < 0.03 || weight >= 0.11) {
     timeCredit = 1;
     servo2.write(90);
     delay(3000);
     servo2.write(0);
     resultMessage = "Bottle Accepted! 1 Minute Granted";
-  } else if (weight >= 2.00 && weight < 3.00) {
+  } else if (weight >= 0.01 && weight < 0.99) {
     timeCredit = 2;
     servo2.write(90);
     delay(3000);
     servo2.write(0);
     resultMessage = "Bottle Accepted! 2 Minutes Granted";
-  } else if (weight >= 3.00) {
+  } else if (weight >= 1.20 ) {
     timeCredit = 3;
     servo2.write(90);
     delay(3000);
@@ -210,7 +258,6 @@ void handleInsert() {
   lcd.print("Ready!");
 }
 
-// Handle remaining time query
 void handleTime() {
   String clientIP = server.client().remoteIP().toString();
   int time = 0;
@@ -225,7 +272,6 @@ void handleTime() {
   server.send(200, "text/plain", String(time));
 }
 
-// Decrement remaining time for devices and track data usage
 void decrementTime() {
   static unsigned long lastUpdate = 0;
 
@@ -233,7 +279,7 @@ void decrementTime() {
     for (int i = 0; i < deviceCount; i++) {
       if (deviceTimers[i].remainingTime > 0) {
         deviceTimers[i].remainingTime--;
-        deviceTimers[i].dataUsed += 100; // Increment data usage (in bytes) for demonstration
+        deviceTimers[i].dataUsed += 100; 
       }
     }
     lastUpdate = millis();
@@ -287,7 +333,6 @@ void handleAuth() {
   server.send(403, "text/plain", "Access Denied. Invalid credentials.");
 }
 
-
 void setup() {
   Serial.begin(9600);
 
@@ -310,6 +355,9 @@ void setup() {
   scale.set_scale(calibration_factor);
   scale.tare();
 
+  pinMode(TRIGGER_PIN, OUTPUT);
+  pinMode(ECHO_PIN, INPUT);
+
   WiFi.softAP(ssid);
 
   Serial.println("Access Point started:");
@@ -329,7 +377,6 @@ void setup() {
   server.on("/login", handleLogin);
   server.on("/auth", HTTP_POST, handleAuth);
   server.on("/admin", handleAdmin);
-
 
   lcd.clear();
   lcd.setCursor(0, 0);
